@@ -1,11 +1,11 @@
-version: "3.8"
-
 services:
   # Base service definition (won't start on its own)
   x-base-app: &base-app
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      args:
+        PREFER_GPU: ${PREFER_GPU:-1}
     # For NVIDIA GPUs, uncomment below:
     deploy:
       resources:
@@ -16,14 +16,16 @@ services:
               capabilities: [gpu]
     volumes:
       # Map the entire WeChat parent or "msg" directory so it can scan for videos
-      - ${HOST_DCIM_ROOT:-../..}:/app/web/data
+      - ${HOST_VIDEO_ROOT:-E:/local/home/xwechat_files/winseliu_f4ec/msg/video/2026-03}:/app/web/data
       # Persist runtime web data under static root for relative URL access
       - ${HOST_WEB_DATA_DIR:-../runtime-data}:/app/web/face_data
+    environment:
+      USE_GPU: ${USE_GPU:-1}
 
   # Default: Runs the lightweight built-in HTTP server to serve the generated JSON UI
   webapp:
     <<: *base-app
-    container_name: wechat-video-face-server
+    container_name: video-face-server
     ports:
       - "8080:8080"
     command: serve
@@ -32,7 +34,7 @@ services:
   # Worker: Runs the pipeline job (extract frames, run models, cluster)
   pipeline:
     <<: *base-app
-    container_name: wechat-video-face-pipeline
+    container_name: video-face-pipeline
     # This just runs once and exits
     command: pipeline
     profiles:
@@ -41,7 +43,7 @@ services:
   # Dedupe: Runs video deduplication
   dedupe:
     <<: *base-app
-    container_name: wechat-video-face-dedupe
+    container_name: video-face-dedupe
     command: dedupe
     profiles:
       - tools

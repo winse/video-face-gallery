@@ -41,5 +41,6 @@ nul
 # Large data files
 web/face_data/
 web/face_data.json
+runtime-data/
 *.json
 !config.json  # Keep config if exists

@@ -3,11 +3,11 @@ InsightFace face detection and embedding module
 """
 import logging
 import os
-import sys
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 from io import StringIO
+from contextlib import redirect_stderr
 import cv2
 
 # Suppress OpenCV GStreamer warnings globally
@@ -17,10 +17,6 @@ os.environ['OPENCV_VIDEOIO_PRIORITY_GSTREAMER'] = '0'
 from gpu_config import get_face_detector_config, check_gpu_status
 
 logger = logging.getLogger("video_face")
-
-# Suppress ONNX Runtime/InsightFace info messages during init
-_ORT_STDERR = sys.stderr
-sys.stderr = StringIO()
 
 
 class FaceDetector:
@@ -41,20 +37,18 @@ class FaceDetector:
         config['model_name'] = model_name
 
         try:
-            import insightface
-            self.app = insightface.app.FaceAnalysis(**config)
-            
-            # ctx_id: -1 for CPU, 0+ for GPU
-            ctx_id = 0 if self.use_gpu else -1
-            self.app.prepare(ctx_id=ctx_id, det_size=config['det_size'])
-            
+            # Suppress noisy ORT/InsightFace init logs only in this block.
+            with redirect_stderr(StringIO()):
+                import insightface
+                self.app = insightface.app.FaceAnalysis(**config)
+                # ctx_id: -1 for CPU, 0+ for GPU
+                ctx_id = 0 if self.use_gpu else -1
+                self.app.prepare(ctx_id=ctx_id, det_size=config['det_size'])
+
             logger.info("Initialized InsightFace with model: %s", model_name)
         except Exception as e:
             logger.error("Failed to initialize InsightFace: %s", e)
             raise
-        finally:
-            # Restore stderr
-            sys.stderr = _ORT_STDERR
 
         gpu_status = check_gpu_status()
         self.gpu_available = gpu_status['available']

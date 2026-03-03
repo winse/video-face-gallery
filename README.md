@@ -4,7 +4,7 @@
 
 ## 快速开始
 
-### 环境准备
+### 本地 Win11 运行
 
 ```bash
 # 1. 激活 conda 环境
@@ -14,16 +14,27 @@ conda activate video
 
 # 3. 创建符号链接（Windows）
 mklink /J web/data %VIDEO_DIR%
-```
 
-### 运行完整处理流程
-
-```bash
-# 进入项目目录
+# 4. 进入项目目录
 cd tools
 
-# 运行完整处理流程（人脸检测 + 聚类 + 生成 HTML）
+# 5. 运行完整处理流程（人脸检测 + 聚类 + 生成 HTML）。按照提示，选择对应的功能运行
 run.bat
+```
+
+### 运行 Docker 版本
+
+```bash
+# 1. 把 docker-compose.yml 文件中的 HOST_VIDEO_ROOT 变量修改为视频目录
+
+# 2. 运行完整处理流程
+docker compose run --build --rm pipeline
+
+# 3. 运行 Web 服务
+docker compose run --rm -p 8080:8080 webapp
+
+# 4. 访问 http://localhost:8080
+# 5. 点击 "同步数据" 按钮，等待处理完成，然后，浏览视频
 ```
 
 ---

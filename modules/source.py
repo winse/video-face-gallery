@@ -25,7 +25,12 @@ class VideoSource:
     def scan(self) -> List[Path]:
         """Scan video directory recursively for MP4 files."""
         logger.info(f"Scanning videos in: {self.video_dir}")
+        if not self.video_dir.exists():
+            logger.warning("Video directory does not exist: %s", self.video_dir)
+            return []
         videos = sorted(list(self.video_dir.rglob("*.mp4")))
+        if not videos:
+            logger.warning("No .mp4 files found under: %s", self.video_dir)
         logger.info(f"Found {len(videos)} videos")
         return videos
 

@@ -16,4 +16,4 @@ todo.md
 pytest.ini
 tests/
 tools/run.bat
-tools/web-server.bat
+tools/web-server.cmd

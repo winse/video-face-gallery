@@ -3,6 +3,7 @@ FFmpeg frame extraction module
 """
 import logging
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Union, List
@@ -36,13 +37,19 @@ class FrameExtractor:
             quality: JPEG quality (1-100)
             default_size: Default output size (width, height)
         """
-        self.ffmpeg_path = Path(ffmpeg_path)
+        ffmpeg_value = str(ffmpeg_path)
+        ffmpeg_file = Path(ffmpeg_value)
+        if ffmpeg_file.exists():
+            self.ffmpeg_path = ffmpeg_file
+        else:
+            resolved = shutil.which(ffmpeg_value)
+            if not resolved:
+                raise FileNotFoundError(f"FFmpeg not found: {ffmpeg_value}")
+            self.ffmpeg_path = Path(resolved)
+
         self.output_dir = ensure_dir(output_dir)
         self.quality = max(1, min(100, quality))
         self.default_size = default_size
-
-        if not self.ffmpeg_path.exists():
-            raise FileNotFoundError(f"FFmpeg not found: {self.ffmpeg_path}")
 
     def extract_frame(
         self,
