@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Video Player & Tagging</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+            color: var(--text-primary);
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 100%;
+            padding: 0;
+            background: var(--bg-primary);
+        }
+
+        /* Header */
+        .player-header {
+            padding: 12px 24px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        /* Content Area */
+        .player-viewport {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .main-stage {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            position: relative;
+        }
+
+        #mainVideo {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            outline: none;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 380px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-primary);
+            border-left: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .sidebar-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 13px;
+            opacity: 0.6;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab.active {
+            opacity: 1;
+            font-weight: bold;
+            border-bottom-color: var(--accent);
+            background: var(--bg-primary);
+        }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .pane {
+            display: none;
+        }
+
+        .pane.active {
+            display: block;
+        }
+
+        /* Snapshot Grid */
+        .snapshot-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .snapshot-item {
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--bg-secondary);
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .snapshot-item:hover {
+            border-color: var(--accent);
+        }
+
+        .snapshot-item img {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .snapshot-info {
+            padding: 6px;
+            font-size: 11px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.4);
+            color: #fff;
+        }
+
+        /* Info Style */
+        .info-row {
+            margin-bottom: 15px;
+        }
+
+        .info-label {
+            font-size: 12px;
+            opacity: 0.6;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            word-break: break-all;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            font-size: 18px;
+        }
+
+        /* Playlist Styles */
+        .playlist-grid {
+            padding: 16px;
+        }
+
+        .playlist-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .playlist-item:hover {
+            background: rgba(102, 126, 234, 0.1);
+            border-color: var(--accent);
+        }
+
+        .playlist-item.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .playlist-header {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .playlist-thumb {
+            width: 60px;
+            height: 40px;
+            border-radius: 4px;
+            object-fit: cover;
+            background: #000;
+        }
+
+        .playlist-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .playlist-name {
+            font-size: 13px;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text-primary);
+        }
+
+        .playlist-item.active .playlist-name {
+            color: white;
+        }
+
+        .playlist-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            opacity: 0.8;
+            margin-top: 2px;
+        }
+
+        .playlist-item.active .playlist-meta {
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .playlist-faces {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+            gap: 6px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .playlist-item.active .playlist-faces {
+            border-top-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .playlist-face {
+            text-align: center;
+            position: relative;
+        }
+
+        .playlist-face img {
+            width: 100%;
+            aspect-ratio: 1/1;
+            border-radius: 4px;
+            object-fit: cover;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .playlist-face:hover img {
+            transform: scale(1.1);
+            z-index: 2;
+        }
+
+        .playlist-face-time {
+            font-size: 9px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .playlist-item.active .playlist-face-time {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        /* Auto Play Toggle */
+        .auto-play-bar {
+            padding: 12px;
+            background: var(--bg-primary);
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: var(--text-primary);
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .3s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: var(--accent);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(16px);
+        }
+
+        .playlist-sort-group {
+            display: flex;
+            gap: 4px;
+        }
+
+        .playlist-sort-btn {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .playlist-sort-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .playlist-sort-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        /* Nav Buttons Overlay */
+        .nav-overlay {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            padding: 0 20px;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .nav-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: all 0.2s;
+            font-size: 20px;
+        }
+
+        .nav-btn:hover {
+            background: var(--accent);
+            transform: scale(1.1);
+            border-color: transparent;
+        }
+
+        .nav-btn.disabled {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading" class="loading-overlay">正在初始化播放器与数据...</div>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="player-header">
+            <div style="display:flex; align-items:center; gap:20px;">
+                <button onclick="window.close()" class="theme-toggle" style="padding: 6px 12px;">✕ 关闭</button>
+                <div>
+                    <h2 id="videoTitle" style="font-size:15px; margin:0; color:var(--text-primary);">视频播放</h2>
+                    <div id="videoSub" style="font-size:11px; opacity:0.5;">正在加载路径...</div>
+                </div>
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button onclick="copyCurrentPath()" class="copy-btn" style="padding: 8px 16px;">复制完整路径</button>
+                <button onclick="toggleTheme()" class="theme-toggle">🌓 主题</button>
+            </div>
+        </div>
+
+        <div class="player-viewport">
+            <!-- Main Video -->
+            <div class="main-stage">
+                <video id="mainVideo" controls autoplay></video>
+                <div class="nav-overlay">
+                    <div id="navPrev" class="nav-btn disabled" onclick="playNext(-1)">◀</div>
+                    <div id="navNext" class="nav-btn disabled" onclick="playNext(1)">▶</div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="sidebar-tabs">
+                    <div class="tab" id="tab-playlist" onclick="switchTab('playlist')">🎬 列表</div>
+                    <div class="tab active" id="tab-tags" onclick="switchTab('tags')">🏷️ 标签</div>
+                    <div class="tab" id="tab-info" onclick="switchTab('info')">ℹ️ 信息</div>
+                </div>
+
+                <div class="sidebar-content">
+                    <!-- Playlist Pane -->
+                    <div id="pane-playlist" class="pane">
+                        <div class="auto-play-bar">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span>自动播放</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="autoPlayToggle" onchange="toggleAutoPlaySetting(this.checked)">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="playlist-sort-group">
+                                <button id="psort-name" class="playlist-sort-btn active" onclick="sortPlaylist('name', 'asc')">名称 ↑</button>
+                                <button id="psort-date" class="playlist-sort-btn" onclick="sortPlaylist('date', 'desc')">日期 ↓</button>
+                            </div>
+                        </div>
+                        <div id="playlistGrid" class="playlist-grid"></div>
+                    </div>
+
+                    <!-- Tags Pane -->
+                    <div id="pane-tags" class="pane active">
+                        <div id="modalTagSection" class="modal-tag-section" style="border:none; padding:0;">
+                            <!-- Tag buttons injected here -->
+                        </div>
+                    </div>
+
+                    <!-- Info Pane -->
+                    <div id="pane-info" class="pane">
+                        <div class="info-row">
+                            <div class="info-label">视频名称</div>
+                            <div class="info-value" id="info-vname">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">视频拍摄时间</div>
+                            <div class="info-value" id="info-vdate">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">文件创建时间</div>
+                            <div class="info-value" id="info-ctime">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">文件最后修改</div>
+                            <div class="info-value" id="info-mtime">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">视频总时长</div>
+                            <div class="info-value" id="info-duration">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">文件大小</div>
+                            <div class="info-value" id="info-size">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">存储路径</div>
+                            <div class="info-value" id="info-path">-</div>
+                        </div>
+                        <div class="info-row">
+                            <div class="info-label">检测到的快照数</div>
+                            <div class="info-value" id="info-faces">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- detail.js expects these globals -->
+    <script>
+        var personVideos = { "CURRENT_VIDEO": [] };
+        var allTagsData = { tags: {}, video_tags: {} };
+        var faceCount = 0;
+        var activeVideoName = "";
+        var activeVideoUrl = "";
+        var activeVideoAbsPath = "";
+        var currentContextPlaylist = [];
+        var autoPlayEnabled = localStorage.getItem("player_auto_play") !== "false";
+    </script>
+    <script src="detail.js"></script>
+    <script src="data_manager.js"></script>
+    <script>
+        async function initPlayer() {
+            // Initialize Toggle UI
+            document.getElementById('autoPlayToggle').checked = autoPlayEnabled;
+
+            // Auto Play Logic
+            document.getElementById('mainVideo').onended = () => {
+                if (autoPlayEnabled) playNext(1);
+            };
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const vname = urlParams.get('video');
+            const vurl = urlParams.get('url');
+
+            if (!vname) {
+                document.getElementById('loading').innerHTML = '❌ 缺少视频信息';
+                return;
+            }
+
+            activeVideoName = vname;
+            activeVideoUrl = vurl;
+            window.currentVideoUrl = vurl; // Global for detail.js compatibility
+
+            try {
+                // Load Tags and Faces via DataManager
+                allTagsData = await DataManager.loadData('tags.json', 'tags_data');
+                window.tagsData = allTagsData;
+
+                const faceData = await DataManager.loadData(DataManager.getDataPath('face_data.json'), 'face_data');
+
+                // Load Playlist if context provided
+                const pid = urlParams.get('pid');
+                const tid = urlParams.get('tid');
+                if (pid || tid) {
+                    currentContextPlaylist = await loadPlaylist(faceData, allTagsData, pid, tid);
+                    renderPlaylist();
+                    switchTab('playlist');
+                } else {
+                    document.getElementById('tab-playlist').style.display = 'none';
+                }
+
+                playVideo(vname, vurl, faceData);
+                document.getElementById('loading').style.display = 'none';
+            } catch (e) {
+                console.error(e);
+                document.getElementById('loading').innerHTML = '❌ 加载失败: ' + e.message;
+            }
+        }
+
+        async function loadPlaylist(faceData, tagsData, pid, tid) {
+            let list = [];
+            const videoMap = {};
+            const metaData = faceData.video_metadata || {};
+            const toNumber = (value, fallback = 0) => {
+                const n = Number(value);
+                return Number.isFinite(n) ? n : fallback;
+            };
+
+            const processFace = (f) => {
+                if (!f || !f.video_name) return;
+                if (!videoMap[f.video_name]) {
+                    const t = f.thumbnail_path || f.frame_path || "";
+                    const m = metaData[f.source_video] || {};
+                    videoMap[f.video_name] = {
+                        name: f.video_name,
+                        url: DataManager.getRelativeVideoPath(f.source_video),
+                        thumb: t.replace(/\\/g, '/').split('thumbnails/').pop(),
+                        vTime: m.v_create_date || m.create_date || f.video_date,
+                        rawTime: DataManager.getVideoSortTime(m, 0),
+                        duration: m.duration || '0:00',
+                        size: m.size || '',
+                        faces: []
+                    };
+                }
+                const tf = f.thumbnail_path || f.frame_path || "";
+                videoMap[f.video_name].faces.push({
+                    time: toNumber(f.timestamp),
+                    thumb: tf.replace(/\\/g, '/').split('thumbnails/').pop()
+                });
+            };
+
+            if (pid) {
+                const pdata = faceData.persons[pid];
+                if (pdata) {
+                    pdata.faces.forEach(fid => {
+                        const face = faceData.faces[fid];
+                        if (face) processFace(face);
+                    });
+                }
+            } else if (tid) {
+                const videoNames = [];
+                Object.entries(tagsData.video_tags).forEach(([vn, tids]) => {
+                    if (tids.includes(tid)) videoNames.push(vn);
+                });
+                Object.values(faceData.faces).forEach(f => {
+                    if (videoNames.includes(f.video_name)) processFace(f);
+                });
+            }
+
+            // Default initial sort: Date DESC (Newest first)
+            list = Object.values(videoMap).sort((a, b) => (b.rawTime || 0) - (a.rawTime || 0));
+            // Sort faces within each video
+            list.forEach(v => v.faces.sort((a, b) => toNumber(a.time) - toNumber(b.time)));
+
+            // Sync UI button state for initial sort
+            const dateBtn = document.getElementById('psort-date');
+            const nameBtn = document.getElementById('psort-name');
+            if (dateBtn && nameBtn) {
+                dateBtn.classList.add('active');
+                dateBtn.setAttribute('data-dir', 'desc');
+                nameBtn.classList.remove('active');
+            }
+
+            return list;
+        }
+
+        function renderPlaylist() {
+            const grid = document.getElementById('playlistGrid');
+            const currentIndex = currentContextPlaylist.findIndex(v => v.name === activeVideoName);
+
+            grid.innerHTML = currentContextPlaylist.map((v, idx) => {
+                const facesHtml = v.faces.map(f => `
+                    <div class="playlist-face" onclick="event.stopPropagation(); seekToPlaylistTime('${v.name}', '${v.url}', ${Number.isFinite(Number(f.time)) ? Number(f.time) : 0})">
+                        <img src="${DataManager.getThumbnailPath(f.thumb)}">
+                        <div class="playlist-face-time">${(Number.isFinite(Number(f.time)) ? Number(f.time) : 0).toFixed(1)}s</div>
+                    </div>
+                `).join('');
+
+                return `
+                    <div class="playlist-item ${idx === currentIndex ? 'active' : ''}" onclick="switchToVideo(${idx})">
+                        <div class="playlist-header">
+                            <img src="${DataManager.getThumbnailPath(v.thumb)}" class="playlist-thumb">
+                            <div class="playlist-info">
+                                <div class="playlist-name">${v.name}</div>
+                                <div class="playlist-meta">${v.vTime} | 时长: ${v.duration}</div>
+                            </div>
+                        </div>
+                        <div class="playlist-faces">
+                            ${facesHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Update Nav buttons
+            document.getElementById('navPrev').classList.toggle('disabled', currentIndex <= 0);
+            document.getElementById('navNext').classList.toggle('disabled', currentIndex >= currentContextPlaylist.length - 1 || currentIndex === -1);
+        }
+
+        async function seekToPlaylistTime(vname, vurl, time) {
+            if (activeVideoName !== vname) {
+                const faceData = await DataManager.loadData(DataManager.getDataPath('face_data.json'), 'face_data');
+                playVideo(vname, vurl, faceData);
+                renderPlaylist();
+            }
+            seekToTime(time);
+        }
+
+        async function switchToVideo(index) {
+            const videoData = currentContextPlaylist[index];
+            if (!videoData) return;
+
+            const faceData = await DataManager.loadData(DataManager.getDataPath('face_data.json'), 'face_data');
+            playVideo(videoData.name, videoData.url, faceData);
+            renderPlaylist();
+        }
+
+        function sortPlaylist(type, dir) {
+            const btn = document.getElementById('psort-' + type);
+            if (!btn) return;
+
+            // Toggle direction if already active
+            let currentDir = btn.getAttribute('data-dir') || dir;
+            if (btn.classList.contains('active')) {
+                currentDir = currentDir === 'asc' ? 'desc' : 'asc';
+            }
+            btn.setAttribute('data-dir', currentDir);
+
+            document.querySelectorAll('.playlist-sort-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            btn.textContent = (type === 'name' ? '名称 ' : '日期 ') + (currentDir === 'asc' ? '↑' : '↓');
+
+            const factor = currentDir === 'asc' ? 1 : -1;
+
+            if (type === 'name') {
+                currentContextPlaylist.sort((a, b) => factor * a.name.localeCompare(b.name));
+            } else if (type === 'date') {
+                currentContextPlaylist.sort((a, b) => factor * ((a.rawTime || 0) - (b.rawTime || 0)));
+            }
+            renderPlaylist();
+        }
+
+        function playVideo(vname, vurl, faceData) {
+            activeVideoName = vname;
+            activeVideoUrl = vurl;
+            activeVideoAbsPath = ""; // Reset to find new one
+
+            document.getElementById('videoTitle').textContent = vname;
+            document.getElementById('mainVideo').src = vurl;
+
+            findVideoFaces(faceData);
+            renderModalTags(vname);
+
+            // Fetch meta details from enriched faceData
+            const meta = (faceData.video_metadata || {})[activeVideoAbsPath] || {};
+
+            document.getElementById('videoSub').textContent = activeVideoAbsPath || activeVideoUrl;
+            document.getElementById('info-vname').textContent = vname;
+            document.getElementById('info-path').textContent = activeVideoAbsPath || activeVideoUrl;
+
+            // New metadata fields mapping to regenerate_html.py output
+            document.getElementById('info-vdate').textContent = meta.v_create_date || "未知";
+            document.getElementById('info-ctime').textContent = meta.ctime || "未知";
+            document.getElementById('info-mtime').textContent = meta.mtime || "未知";
+            document.getElementById('info-duration').textContent = meta.duration || "未知";
+            document.getElementById('info-size').textContent = meta.size || "未知";
+        }
+
+        function playNext(dir) {
+            const currentIndex = currentContextPlaylist.findIndex(v => v.name === activeVideoName);
+            const nextIndex = currentIndex + dir;
+            if (nextIndex >= 0 && nextIndex < currentContextPlaylist.length) {
+                switchToVideo(nextIndex);
+            }
+        }
+
+        function findVideoFaces(data) {
+            const faces = [];
+
+            for (const fid in data.faces) {
+                const f = data.faces[fid];
+                if (f.video_name === activeVideoName) {
+                    faces.push(f);
+                    if (!activeVideoAbsPath) activeVideoAbsPath = f.source_video;
+                }
+            }
+
+            // Sort by timestamp
+            faces.sort((a, b) => a.timestamp - b.timestamp);
+            faceCount = faces.length;
+            document.getElementById('info-faces').textContent = faceCount + " 个检测点";
+        }
+
+        function switchTab(tag) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+
+            const targetTab = document.getElementById('tab-' + tag);
+            const targetPane = document.getElementById('pane-' + tag);
+
+            if (targetTab) targetTab.classList.add('active');
+            if (targetPane) targetPane.classList.add('active');
+        }
+
+        function copyCurrentPath() {
+            const pathToCopy = activeVideoAbsPath || activeVideoUrl;
+            navigator.clipboard.writeText(pathToCopy).then(() => {
+                alert('系统绝对路径已复制: ' + pathToCopy);
+            });
+        }
+
+        function toggleAutoPlaySetting(enabled) {
+            autoPlayEnabled = enabled;
+            localStorage.setItem("player_auto_play", enabled);
+        }
+
+        // Seek function for snapshot clicks
+        function seekToTime(time) {
+            const video = document.getElementById('mainVideo');
+            video.currentTime = time;
+            video.play();
+        }
+
+        function setPlaybackRate(rate) {
+            const video = document.getElementById('mainVideo');
+            video.playbackRate = rate;
+            video.play();
+        }
+
+        // Re-route toggleVideoTagModal for player context
+        window.toggleVideoTagModal = function (v, tid) {
+            if (!tagsData.video_tags[v]) tagsData.video_tags[v] = [];
+            let idx = tagsData.video_tags[v].indexOf(tid);
+            if (idx > -1) tagsData.video_tags[v].splice(idx, 1);
+            else tagsData.video_tags[v].push(tid);
+            renderModalTags(v);
+            if (typeof DataManager !== 'undefined') DataManager.set('tags_data', tagsData);
+        };
+
+        initPlayer();
+    </script>
+</body>
+
+</html>

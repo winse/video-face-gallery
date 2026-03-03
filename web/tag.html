@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Tag Details</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #tagHeader {
+            border-left: 8px solid var(--accent);
+            padding-left: 15px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading" class="loading-overlay">正在查询标签关联视频...</div>
+
+    <div class="container">
+        <a href="index.html" class="back">
+            < BACK TO INDEX</a>
+
+                <div class="header-container">
+                    <header id="tagHeader">
+                        <!-- Dynamic tag info -->
+                    </header>
+                    <div class="controls">
+                        <button onclick="toggleTheme()" class="theme-toggle">🌓 主题</button>
+                        <button onclick="location.href='tags.html'" class="theme-toggle">🏷️ 标签管理</button>
+                    </div>
+                </div>
+
+                <div id="videoGroupsWrapper" class="video-groups">
+                    <!-- Dynamic video list -->
+                </div>
+    </div>
+
+    <script>
+        var personVideos = {};
+        var allTagsData = { tags: {}, video_tags: {} };
+        var faceData = null;
+    </script>
+    <script src="data_manager.js"></script>
+    <script src="detail.js"></script>
+    <script>
+        async function loadTagDetails() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tid = urlParams.get('id');
+            if (!tid) {
+                document.getElementById('loading').innerHTML = '❌ 未指定标签 ID';
+                return;
+            }
+
+            try {
+                faceData = await DataManager.loadData(DataManager.getDataPath('face_data.json'), 'face_data');
+                allTagsData = await DataManager.loadData('tags.json', 'tags_data');
+                window.tagsData = allTagsData;
+
+                const tag = allTagsData.tags[tid] || { name: tid, color: '#667eea' };
+                const taggedVideoNames = [];
+                Object.entries(allTagsData.video_tags).forEach(([vname, tids]) => {
+                    if (tids.includes(tid)) taggedVideoNames.push(vname);
+                });
+
+                // Find full paths and collect faces for these video names from faceData
+                const videoPaths = {};
+                const videoGroupFaces = {};
+                Object.values(faceData.faces).forEach(f => {
+                    if (taggedVideoNames.includes(f.video_name)) {
+                        videoPaths[f.video_name] = f.source_video;
+                        if (!videoGroupFaces[f.video_name]) videoGroupFaces[f.video_name] = [];
+                        videoGroupFaces[f.video_name].push(f);
+                    }
+                });
+
+                const allVideosData = [];
+                taggedVideoNames.forEach(vname => {
+                    const abs_path = videoPaths[vname] || vname;
+                    const meta = (faceData.video_metadata || {})[abs_path] || {};
+                    const vFaces = (videoGroupFaces[vname] || []).sort((a, b) => a.timestamp - b.timestamp);
+
+                    allVideosData.push({
+                        video_url: DataManager.getRelativeVideoPath(abs_path),
+                        abs_path: abs_path,
+                        video_name: vname,
+                        first_thumbnail: vFaces.length > 0 ? getCleanThumbnail(vFaces[0]) : '',
+                        first_timestamp: vFaces.length > 0 ? vFaces[0].timestamp : 0,
+                        face_count: vFaces.length,
+                        sort_time: meta.v_create_raw || meta.ctime_raw || 0,
+                        faces: vFaces.map(f => ({
+                            t: getCleanThumbnail(f),
+                            s: f.timestamp,
+                            idx: f.frame_index
+                        }))
+                    });
+                });
+                // Sort by creation time descending
+                allVideosData.sort((a, b) => (b.sort_time || 0) - (a.sort_time || 0));
+                personVideos[tid] = allVideosData;
+
+                renderUI(tid, tag, allVideosData);
+                document.getElementById('loading').style.display = 'none';
+
+            } catch (e) {
+                console.error(e);
+                document.getElementById('loading').innerHTML = '❌ 加载失败: ' + e.message;
+            }
+        }
+
+        function getCleanThumbnail(f) {
+            const t = f.thumbnail_path || f.frame_path || '';
+            const parts = t.replace(/\\/g, '/').split('thumbnails/');
+            return parts[parts.length - 1];
+        }
+
+        function renderUI(tid, tag, videos) {
+            const header = document.getElementById('tagHeader');
+            header.style.borderLeft = `8px solid ${tag.color}`;
+            header.innerHTML = `
+                <h1 style="margin:0">Tag: ${tag.name}</h1>
+                <p style="margin:5px 0 0 0; opacity:0.7;">${videos.length} videos tagged with this</p>
+            `;
+
+            const wrapper = document.getElementById('videoGroupsWrapper');
+            wrapper.innerHTML = videos.map(v => {
+                const meta = (faceData.video_metadata || {})[v.abs_path] || {};
+                const vTime = meta.v_create_date || meta.create_date || meta.ctime || '?';
+                const metaLines = [
+                    `📅 视频拍摄: ${vTime}`,
+                    `📄 文件创建: ${meta.ctime || '?'}`,
+                    `⏱️ 时长: ${meta.duration || '0:00'} | 💾 大小: ${meta.size || '?'}`
+                ];
+                const metaStr = `<div class="video-meta-detail">${metaLines.join('<br>')}</div>`;
+
+                const faceGridHtml = v.faces.map(f => `
+                    <div class="face-item" title="${f.idx} @ ${f.s.toFixed(1)}s">
+                        <img src="${DataManager.getThumbnailPath(f.t)}" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&tid=${tid}', '_blank')">
+                        <div class="face-name">${f.s.toFixed(1)}s</div>
+                    </div>
+                `).join('');
+
+                const videoThumb = v.first_thumbnail ? `<img src="${DataManager.getThumbnailPath(v.first_thumbnail)}" class="video-thumb" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&tid=${tid}', '_blank')">` : '';
+
+                return `
+                <div class="video-group">
+                    <div class="video-header">
+                        ${videoThumb}
+                        <div class="video-info">
+                            <div class="video-name" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&tid=${tid}', '_blank')">${v.video_name}</div>
+                            ${metaStr}
+                        </div>
+                    </div>
+                    <div class="face-list">
+                        <div class="face-grid">${faceGridHtml}</div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        loadTagDetails();
+    </script>
+</body>
+
+</html>

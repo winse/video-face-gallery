@@ -1,0 +1,45 @@
+# Generated files
+thumbnails/
+thumbnails/*
+web/data
+*.jpg
+*.jpeg
+*.png
+*.mp4
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Temp files
+temp_dedupe/
+*.log
+processing.log
+
+# Data files (optional)
+# face_data.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+nul
+
+
+# Large data files
+web/face_data/
+web/face_data.json
+*.json
+!config.json  # Keep config if exists

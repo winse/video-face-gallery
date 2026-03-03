@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Person Details</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 24px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-main {
+            margin: 0;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sort-controls {
+            display: flex;
+            gap: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading" class="loading-overlay">正在加载聚类数据...</div>
+
+    <div class="container">
+        <a href="index.html" class="back">
+            < BACK TO INDEX</a>
+
+                <div class="header-container">
+                    <header id="detailHeader">
+                        <!-- Dynamic title and stats -->
+                    </header>
+
+                    <div class="controls">
+                        <div class="sort-controls">
+                            <button id="sort-count" class="sort-btn active" data-sort="count" data-dir="desc" onclick="toggleSort('count')">数量 ↓</button>
+                            <button id="sort-time" class="sort-btn" data-sort="time" data-dir="desc" onclick="toggleSort('time')">时间 ↓</button>
+                        </div>
+                        <select id="yearFilter" class="filter-select" onchange="filterByYear()">
+                            <option value="all">所有年份/月份</option>
+                        </select>
+                        <button onclick="toggleTheme()" class="theme-toggle">🌓</button>
+                    </div>
+                </div>
+
+                <div id="videoGroupsWrapper" class="video-groups">
+                    <!-- Dynamic video groups -->
+                </div>
+    </div>
+
+    <!-- detail.js loads early but uses the globals defined later -->
+    <script>
+        var personVideos = {};
+        var allTagsData = { tags: {}, video_tags: {} };
+        var faceData = null;
+    </script>
+    <script src="data_manager.js"></script>
+    <script src="detail.js"></script>
+    <script>
+        async function loadPersonDetails() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const pid = urlParams.get('id');
+            if (!pid) {
+                document.getElementById('loading').innerHTML = '❌ 未指定人物 ID';
+                return;
+            }
+
+            try {
+                faceData = await DataManager.loadData(DataManager.getDataPath('face_data.json'), 'face_data');
+                allTagsData = await DataManager.loadData('tags.json', 'tags_data');
+                window.tagsData = allTagsData;
+
+                const pdata = faceData.persons[pid];
+                if (!pdata) throw new Error('找不到人物: ' + pid);
+
+                // Group faces by video
+                const videoGroups = {};
+                pdata.faces.forEach(fid => {
+                    const f = faceData.faces[fid];
+                    const vPath = f.source_video || 'Unknown';
+                    if (!videoGroups[vPath]) videoGroups[vPath] = [];
+                    videoGroups[vPath].push(f);
+                });
+
+                const allVideosSummary = [];
+                const years = new Set();
+                const metaDict = faceData.video_metadata || {};
+
+                Object.keys(videoGroups).forEach(vPath => {
+                    const fl = videoGroups[vPath]
+                        .slice()
+                        .sort((a, b) => toNumber(a.timestamp) - toNumber(b.timestamp));
+                    if (!fl.length) return;
+                    const meta = metaDict[vPath] || {};
+                    const vTime = meta.v_create_date || meta.ctime || 'Unknown';
+                    const sortTime = DataManager.getVideoSortTime(meta, 0);
+                    const yearMonth = vTime.includes('-') ? vTime.substring(0, 7) : 'Unknown';
+
+                    if (yearMonth !== 'Unknown') years.add(yearMonth);
+
+                    allVideosSummary.push({
+                        vPath: vPath,
+                        video_name: fl[0].video_name,
+                        video_url: DataManager.getRelativeVideoPath(vPath),
+                        year_month: yearMonth,
+                        sort_time: sortTime,
+                        vTime_str: vTime,
+                        meta: meta,
+                        faces: fl.map(f => ({
+                            face_id: f.face_id,
+                            timestamp: toNumber(f.timestamp),
+                            frame_index: f.frame_index ?? '-',
+                            thumbnail: getCleanThumbnail(f)
+                        }))
+                    });
+                });
+
+                // Sort by time DESC (Newest first) by default
+                allVideosSummary.sort((a, b) => b.sort_time - a.sort_time);
+
+                // Populate Year Filter
+                const yearSelect = document.getElementById('yearFilter');
+                Array.from(years).sort().reverse().forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    yearSelect.appendChild(opt);
+                });
+
+                // Prepare personVideos global for detail.js modal
+                const allVideosData = allVideosSummary.map(v => {
+                    const firstFace = v.faces[0] || { thumbnail: '', timestamp: 0 };
+                    return ({
+                    video_url: v.vPath.replace(/\\/g, '/'),
+                    video_name: v.video_name,
+                    first_thumbnail: firstFace.thumbnail,
+                    first_timestamp: firstFace.timestamp,
+                    face_count: v.faces.length,
+                    timestamp: firstFace.timestamp,
+                    size: v.meta.size || '',
+                    duration: v.meta.duration || '0:00',
+                    create_date: v.vTime_str,
+                    mtime_raw: v.sort_time,
+                    faces: v.faces.map(f => ({ t: f.thumbnail, s: f.timestamp }))
+                });
+                }).sort((a, b) => b.mtime_raw - a.mtime_raw);
+
+                personVideos[pid] = allVideosData;
+
+                renderUI(pid, pdata, allVideosSummary);
+
+                // CRITICAL: Apply sorting after initial render
+                if (typeof applySort === 'function') applySort();
+
+                document.getElementById('loading').style.display = 'none';
+
+            } catch (e) {
+                console.error(e);
+                document.getElementById('loading').innerHTML = '❌ 加载失败: ' + e.message;
+            }
+        }
+
+        function getCleanThumbnail(f) {
+            const t = f.thumbnail_path || f.frame_path || '';
+            const parts = t.replace(/\\/g, '/').split('thumbnails/');
+            return parts[parts.length - 1];
+        }
+
+        function toNumber(value, fallback = 0) {
+            const n = Number(value);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function renderUI(pid, pdata, videoSummaries) {
+            const header = document.getElementById('detailHeader');
+            header.innerHTML = `
+                <div class="header-main">
+                    <h1>Person #${pdata.cluster_id}</h1>
+                    <div class="stats">
+                        <span>👤 ${pdata.face_count} faces</span>
+                        <span>🎬 ${videoSummaries.length} videos</span>
+                    </div>
+                </div>
+            `;
+
+            const wrapper = document.getElementById('videoGroupsWrapper');
+            wrapper.innerHTML = videoSummaries.map(v => {
+                // Get tags for this video
+                const tagIds = (allTagsData.video_tags || {})[v.video_name] || [];
+                const tagsHtml = tagIds.map(tid => {
+                    const t = (allTagsData.tags || {})[tid] || { name: tid, color: '#667eea' };
+                    return `<span class="tag" style="background:${t.color}">${t.name}</span>`;
+                }).join('');
+
+                const faceGridHtml = v.faces.map(f => `
+                    <div class="face-item" title="${f.frame_index} @ ${f.timestamp.toFixed(1)}s">
+                        <img src="${DataManager.getThumbnailPath(f.thumbnail)}" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&pid=${pid}', '_blank')">
+                        <div class="face-name">${f.timestamp.toFixed(1)}s</div>
+                    </div>
+                `).join('');
+
+                const metaLines = [
+                    `📅 视频拍摄: ${v.vTime_str}`,
+                    `📄 文件创建: ${v.meta.ctime || '?'}`,
+                    `⏱️ 时长: ${v.meta.duration || '0:00'} | 💾 大小: ${v.meta.size || '?'}`
+                ];
+                const metaStr = `<div class="video-meta-detail">${metaLines.join('<br>')}</div>`;
+
+                return `
+                    <div class="video-group" data-year="${v.year_month}" data-count="${v.faces.length}" data-time="${v.sort_time}">
+                        <div class="video-header">
+                            <img src="${DataManager.getThumbnailPath(v.faces[0].thumbnail)}" class="video-thumb" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&pid=${pid}', '_blank')">
+                            <div class="video-info">
+                                <div class="video-name" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&pid=${pid}', '_blank')">${v.video_name}</div>
+                                ${metaStr}
+                                <div class="video-meta-summary">${v.faces.length} 帧数据</div>
+                                <div class="video-tags">${tagsHtml}</div>
+                            </div>
+                        </div>
+                        <div class="face-list">
+                            <div class="face-grid">${faceGridHtml}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        loadPersonDetails();
+    </script>
+</body>
+
+</html>

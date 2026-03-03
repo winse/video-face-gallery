@@ -1,0 +1,265 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频人脸索引</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .header-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 24px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-main {
+            margin: 0;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-input {
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border-radius: 4px;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading" class="loading-overlay">正在加载数据...</div>
+
+    <div class="container">
+        <div class="header-container">
+            <header id="mainHeader" class="header-main">
+                <h1>视频人脸索引</h1>
+                <div class="stats" id="statsContainer">
+                    <!-- Stats loaded dynamically -->
+                </div>
+            </header>
+
+            <div class="controls">
+                <input type="text" id="searchInput" class="search-input" placeholder="搜索人物 ID..." oninput="filterAndRender()">
+                <div class="sort-controls">
+                    <button id="sort-faces" class="sort-btn active" onclick="toggleSort('faces')">人脸数 ↓</button>
+                    <button id="sort-videos" class="sort-btn" onclick="toggleSort('videos')">视频数 ↓</button>
+                    <button id="sort-time" class="sort-btn" onclick="toggleSort('time')">最新时间 ↓</button>
+                </div>
+                <button id="syncDataBtn" onclick="syncData()" class="sort-btn" style="border-color:var(--accent);">同步数据</button>
+                <button onclick="location.href='tags.html'" class="sort-btn" style="border-color:var(--accent); color:var(--accent); font-weight:bold;">🏷️ 标签集</button>
+                <button onclick="toggleTheme()" class="theme-toggle">🌓</button>
+            </div>
+        </div>
+
+        <div id="personGrid" class="grid">
+            <!-- Dynamic person cards -->
+        </div>
+    </div>
+
+    <!-- Data loading dependencies -->
+    <script src="data_manager.js"></script>
+    <script src="index.js"></script>
+    <script>
+        let faceData = null;
+        let personsArray = [];
+        let currentSort = 'faces';
+
+        async function init() {
+            try {
+                // Read json data using DataManager
+                faceData = await DataManager.loadData(DataManager.getDataPath('face_data.json'), 'face_data');
+
+                const personsMap = faceData.persons || {};
+                const faceMap = faceData.faces || {};
+
+                // Convert persons dictionary to array
+                const videoMeta = faceData.video_metadata || {};
+                personsArray = Object.keys(personsMap).map(pid => {
+                    const person = personsMap[pid] || {};
+                    let latestTs = DataManager.toTimestamp(person.last_seen, 0);
+                    const videos = person.unique_videos || [];
+                    for (const vPath of videos) {
+                        const ts = DataManager.getVideoSortTime(videoMeta[vPath], 0);
+                        if (ts > latestTs) latestTs = ts;
+                    }
+                    return {
+                        id: pid,
+                        ...person,
+                        last_seen_ts: latestTs
+                    };
+                });
+
+                // Update stats UI
+                const totalFaces = Object.keys(faceMap).length;
+                const statsHtml = `
+                    <span>👤 ${totalFaces} 张人脸</span>
+                    <span>👥 ${personsArray.length} 个人物</span>
+                `;
+                document.getElementById('statsContainer').innerHTML = statsHtml;
+
+                document.getElementById('loading').style.display = 'none';
+
+                // Initial render
+                filterAndRender();
+            } catch (error) {
+                console.error('Data loading error:', error);
+                document.getElementById('loading').innerHTML = `
+                    <div style="color: #ff4444; text-align: center;">
+                        <p>❌ 数据加载失败！</p>
+                        <p style="font-size: 14px; margin-top: 8px;">请确保通过被本地服务器环境 (HTTP) 访问页面。</p>
+                        <p style="font-size: 14px;">错误: ${error.message}</p>
+                    </div>`;
+            }
+        }
+
+        function getThumbnails(pdata, maxCount = 5) {
+            const faces = pdata.faces || [];
+            if (!faces.length) return [];
+
+            const seenVideos = new Set();
+            const thumbs = [];
+
+            for (const fid of faces) {
+                const f = faceData.faces[fid] || {};
+                const v = f.video_name || f.source_video;
+
+                if (v && !seenVideos.has(v)) {
+                    seenVideos.add(v);
+
+                    const t = f.thumbnail_path || f.frame_path || '';
+                    const parts = t.replace(/\\/g, '/').split('thumbnails/');
+                    const thumbName = parts.length > 1 ? parts.pop() : t.split(/[\\\/]/).pop();
+
+                    if (thumbName) {
+                        thumbs.push(thumbName);
+                        if (thumbs.length >= maxCount) break;
+                    }
+                }
+            }
+            return thumbs;
+        }
+
+        function toggleSort(type) {
+            currentSort = type;
+            document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('sort-' + type).classList.add('active');
+            filterAndRender();
+        }
+
+        async function syncData() {
+            const btn = document.getElementById('syncDataBtn');
+            const loading = document.getElementById('loading');
+            const originalText = btn.textContent;
+
+            btn.disabled = true;
+            btn.textContent = '同步中...';
+            loading.style.display = 'flex';
+            loading.textContent = '正在同步数据...';
+
+            try {
+                await DataManager.clear();
+                await init();
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        function filterAndRender() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+
+            // 1. Filter
+            let filtered = personsArray;
+            if (query) {
+                filtered = personsArray.filter(p =>
+                    p.id.toLowerCase().includes(query) ||
+                    String(p.cluster_id).includes(query)
+                );
+            }
+
+            // 2. Sort
+            if (currentSort === 'faces') {
+                filtered.sort((a, b) => (b.face_count || 0) - (a.face_count || 0));
+            } else if (currentSort === 'videos') {
+                filtered.sort((a, b) => (b.video_count || 0) - (a.video_count || 0));
+            } else if (currentSort === 'time') {
+                filtered.sort((a, b) => (b.last_seen_ts || 0) - (a.last_seen_ts || 0));
+            }
+
+            // 3. Render
+            const grid = document.getElementById('personGrid');
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-secondary);">没有找到相关人物</div>';
+                return;
+            }
+
+            const html = filtered.map(p => {
+                const thumbs = getThumbnails(p, 5);
+                const fallbackSVG = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#333"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="40">👤</text></svg>');
+
+                let avatarHtml = '';
+                if (thumbs.length > 0) {
+                    avatarHtml = thumbs.map(t =>
+                        `<img src="${DataManager.getThumbnailPath(t)}" loading="lazy" style="flex: 1; min-width: 0; object-fit: cover; border-right: 1px solid rgba(255,255,255,0.2);" onerror="this.src='data:image/svg+xml,${fallbackSVG}'">`
+                    ).join('');
+                } else {
+                    avatarHtml = `<img src="data:image/svg+xml,${fallbackSVG}" loading="lazy" style="flex: 1; object-fit: cover;">`;
+                }
+
+                return `
+                    <div class="card" onclick="location.href='detail.html?id=${encodeURIComponent(p.id)}'">
+                        <div class="avatar">
+                            ${avatarHtml}
+                        </div>
+                        <div class="info">
+                            <div class="person-name">Person #${p.cluster_id}</div>
+                            <div class="person-stats">
+                                <span>🖼️ ${p.face_count || 0} faces</span>
+                                <span>🎬 ${p.video_count || 0} videos</span>
+                            </div>
+                            <div class="person-id" style="margin-top: 8px;">ID: ${p.id}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            grid.innerHTML = html;
+        }
+
+        // Start initialization
+        init();
+    </script>
+</body>
+
+</html>
