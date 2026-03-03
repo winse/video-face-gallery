@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Dict, Any
 import cv2
 
 # Suppress OpenCV GStreamer warnings
@@ -113,7 +113,7 @@ class FrameExtractor:
         video_path: Union[str, Path],
         timestamps: List[float],
         size: tuple[int, int] = None
-    ) -> List[Path]:
+    ) -> List[Dict[str, Any]]:
         """
         {Extract multiple frames from video
 
@@ -123,7 +123,10 @@ class FrameExtractor:
             size: Output size (width, height), or None for default
 
         Returns:
-            List of paths to extracted frame images
+            List of frame records:
+            - path: extracted frame image path
+            - timestamp: source timestamp in seconds
+            - frame_index: index in requested timestamps
         """
         video_path = Path(video_path)
         frames = []
@@ -136,7 +139,11 @@ class FrameExtractor:
                     size=size,
                     output_filename=f"{video_path.stem}_f{i:03d}_t{int(ts)}.jpg"
                 )
-                frames.append(frame_path)
+                frames.append({
+                    'path': frame_path,
+                    'timestamp': float(ts),
+                    'frame_index': i
+                })
             except Exception as e:
                 logger.warning(f"Failed to extract frame at {ts}s: {e}")
                 continue
@@ -149,7 +156,7 @@ class FrameExtractor:
         num_frames: int = 5,
         skip_start: float = 1.0,
         skip_end: float = 1.0
-    ) -> List[Path]:
+    ) -> List[Dict[str, Any]]:
         """
         Extract evenly spaced frames from video
 
@@ -160,7 +167,7 @@ class FrameExtractor:
             skip_end: Seconds to skip from end
 
         Returns:
-            List of paths to extracted frame images
+            List of frame records (path/timestamp/frame_index)
         """
         video_path = Path(video_path)
 

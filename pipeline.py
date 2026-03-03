@@ -4,6 +4,7 @@ Simplified using source, portrait, and builder modules.
 """
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -143,15 +144,30 @@ class FaceExtractionPipeline:
                 skip_end=frames_config['skip_end_seconds']
             )
 
-            for i, frame_path in enumerate(frames):
+            for i, frame in enumerate(frames):
+                # Backward-compatible frame record handling:
+                # - New: {'path': Path, 'timestamp': float, 'frame_index': int}
+                # - Old: Path only
+                if isinstance(frame, dict):
+                    frame_path = Path(frame.get('path', ''))
+                    frame_timestamp = self._to_float(frame.get('timestamp'), 0.0)
+                    frame_index = int(frame.get('frame_index', i))
+                else:
+                    frame_path = Path(frame)
+                    frame_timestamp = self._infer_timestamp_from_frame_name(frame_path)
+                    frame_index = i
+
                 faces = self.face_detector.detect_faces(frame_path, return_embedding=True)
                 for face in faces:
                     face_id = str(uuid.uuid4())
                     face.update({
                         'id': face_id,
+                        'face_id': face_id,
                         'source_video': str(video_path),
                         'video_name': video_path.name,
                         'video_date': video_date,
+                        'timestamp': frame_timestamp,
+                        'frame_index': frame_index,
                         'frame_path': str(frame_path),
                         'thumbnail_path': str(frame_path)
                     })
@@ -164,6 +180,25 @@ class FaceExtractionPipeline:
             self.stats['failed_videos'].append(str(video_path))
 
         return video_faces
+
+    @staticmethod
+    def _to_float(value: Any, fallback: float = 0.0) -> float:
+        try:
+            n = float(value)
+            return n if n == n else fallback
+        except Exception:
+            return fallback
+
+    @staticmethod
+    def _infer_timestamp_from_frame_name(frame_path: Path) -> float:
+        # Expected names include "..._t12.jpg" or "..._t12.3.jpg"
+        match = re.search(r"_t(\d+(?:\.\d+)?)", frame_path.stem)
+        if not match:
+            return 0.0
+        try:
+            return float(match.group(1))
+        except Exception:
+            return 0.0
 
     def run(self) -> Dict[str, Any]:
         """Run complete pipeline"""

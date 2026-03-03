@@ -136,7 +136,7 @@
                         meta: meta,
                         faces: fl.map(f => ({
                             face_id: f.face_id,
-                            timestamp: toNumber(f.timestamp),
+                            timestamp: getFaceTimestamp(f),
                             frame_index: f.frame_index ?? '-',
                             thumbnail: getCleanThumbnail(f)
                         }))
@@ -197,6 +197,20 @@
         function toNumber(value, fallback = 0) {
             const n = Number(value);
             return Number.isFinite(n) ? n : fallback;
+        }
+
+        function getFaceTimestamp(face) {
+            const direct = toNumber(face?.timestamp, NaN);
+            if (Number.isFinite(direct)) return direct;
+
+            // Backward compatibility for old data without timestamp field.
+            const path = String(face?.thumbnail_path || face?.frame_path || '');
+            const m = path.match(/_t(\d+(?:\.\d+)?)/i);
+            if (m) {
+                const parsed = toNumber(m[1], NaN);
+                if (Number.isFinite(parsed)) return parsed;
+            }
+            return 0;
         }
 
         function renderUI(pid, pdata, videoSummaries) {
