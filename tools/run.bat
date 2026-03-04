@@ -31,7 +31,8 @@ REM 视频目录，必须在web目录下！
 set VIDEO_DIR=%ROOT_DIR%\web\data
 
 REM 微信数据目录
-@REM mklink /J %VIDEO_DIR% E:\local\home\xwechat_files\winseliu_f4ec\msg\video\2026-02
+@REM cd tools
+@REM mklink /J ..\web\data E:\local\home\xwechat_files\winseliu_f4ec\msg\video\2026-02
 
 REM Python 虚拟环境 (conda)
 set CONDA_DEFAULT_ENV=video

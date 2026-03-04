@@ -92,6 +92,7 @@ class FaceExtractionPipeline:
         ffmpeg_config = self.config['ffmpeg']
         self.frame_extractor = FrameExtractor(
             ffmpeg_path=ffmpeg_config['ffmpeg_path'],
+            ffprobe_path=ffmpeg_config.get('ffprobe_path'),
             output_dir=self.output_dir / ffmpeg_config['output_dir'],
             quality=ffmpeg_config['quality']
         )
@@ -137,42 +138,71 @@ class FaceExtractionPipeline:
 
         try:
             frames_config = self.config['video_processing']
-            frames = self.frame_extractor.extract_evenly_spaced_frames(
-                video_path,
-                num_frames=frames_config['frames_per_video'],
-                skip_start=frames_config['skip_start_seconds'],
-                skip_end=frames_config['skip_end_seconds']
-            )
+            adaptive = frames_config.get('adaptive_sampling', {}) or {}
+            use_adaptive = bool(adaptive.get('enabled', True))
+            skip_start = frames_config['skip_start_seconds']
+            skip_end = frames_config['skip_end_seconds']
 
-            for i, frame in enumerate(frames):
-                # Backward-compatible frame record handling:
-                # - New: {'path': Path, 'timestamp': float, 'frame_index': int}
-                # - Old: Path only
-                if isinstance(frame, dict):
-                    frame_path = Path(frame.get('path', ''))
-                    frame_timestamp = self._to_float(frame.get('timestamp'), 0.0)
-                    frame_index = int(frame.get('frame_index', i))
-                else:
-                    frame_path = Path(frame)
-                    frame_timestamp = self._infer_timestamp_from_frame_name(frame_path)
-                    frame_index = i
+            if use_adaptive:
+                frames = self.frame_extractor.extract_adaptive_frames(
+                    video_path=video_path,
+                    base_frames=int(frames_config.get('frames_per_video', 3)),
+                    skip_start=skip_start,
+                    skip_end=skip_end,
+                    target_interval_seconds=float(adaptive.get('target_interval_seconds', 8.0)),
+                    min_frames=int(adaptive.get('min_frames', 6)),
+                    max_frames=int(adaptive.get('max_frames', 48))
+                )
+            else:
+                frames = self.frame_extractor.extract_evenly_spaced_frames(
+                    video_path,
+                    num_frames=frames_config['frames_per_video'],
+                    skip_start=skip_start,
+                    skip_end=skip_end
+                )
 
-                faces = self.face_detector.detect_faces(frame_path, return_embedding=True)
-                for face in faces:
-                    face_id = str(uuid.uuid4())
-                    face.update({
-                        'id': face_id,
-                        'face_id': face_id,
-                        'source_video': str(video_path),
-                        'video_name': video_path.name,
-                        'video_date': video_date,
-                        'timestamp': frame_timestamp,
-                        'frame_index': frame_index,
-                        'frame_path': str(frame_path),
-                        'thumbnail_path': str(frame_path)
-                    })
-                    self.portrait_manager.save_face(face_id, face)
-                    video_faces.append(face)
+            video_faces.extend(self._detect_faces_from_frames(video_path, video_date, frames))
+
+            # Retry with prime-count staged sampling when first pass detects no face.
+            if (not video_faces) and bool(adaptive.get('retry_if_no_face', True)):
+                base_count = max(1, len(frames))
+                retry_rounds = max(1, int(adaptive.get('retry_max_rounds', 3)))
+                configured_primes = adaptive.get('retry_prime_frames', [11, 17, 29]) or [11, 17, 29]
+                retry_targets = []
+                for n in configured_primes:
+                    try:
+                        v = int(n)
+                        if v > base_count and v > 1:
+                            retry_targets.append(v)
+                    except Exception:
+                        continue
+                retry_targets = sorted(set(retry_targets))[:retry_rounds]
+
+                existing_ts = {
+                    round(self._extract_frame_meta(f, idx)[1], 2)
+                    for idx, f in enumerate(frames)
+                }
+                for retry_count in retry_targets:
+                    self.logger.info(
+                        "[RETRY] %s no faces in first pass, retry with %d frames",
+                        video_path.name, retry_count
+                    )
+                    retry_frames = self.frame_extractor.extract_evenly_spaced_frames(
+                        video_path=video_path,
+                        num_frames=retry_count,
+                        skip_start=skip_start,
+                        skip_end=skip_end
+                    )
+                    extra_retry_frames = []
+                    for idx, f in enumerate(retry_frames):
+                        ts = round(self._extract_frame_meta(f, idx)[1], 2)
+                        if ts not in existing_ts:
+                            existing_ts.add(ts)
+                            extra_retry_frames.append(f)
+                    if extra_retry_frames:
+                        video_faces.extend(self._detect_faces_from_frames(video_path, video_date, extra_retry_frames))
+                    if video_faces:
+                        break
 
             self.logger.info(f"[DONE] {video_path.name}: {len(video_faces)} faces")
         except Exception as e:
@@ -180,6 +210,47 @@ class FaceExtractionPipeline:
             self.stats['failed_videos'].append(str(video_path))
 
         return video_faces
+
+    def _detect_faces_from_frames(
+        self,
+        video_path: Path,
+        video_date: str,
+        frames: List[Any]
+    ) -> List[Dict[str, Any]]:
+        results: List[Dict[str, Any]] = []
+        for i, frame in enumerate(frames):
+            frame_path, frame_timestamp, frame_index = self._extract_frame_meta(frame, i)
+            faces = self.face_detector.detect_faces(frame_path, return_embedding=True)
+            for face in faces:
+                face_id = str(uuid.uuid4())
+                face.update({
+                    'id': face_id,
+                    'face_id': face_id,
+                    'source_video': str(video_path),
+                    'video_name': video_path.name,
+                    'video_date': video_date,
+                    'timestamp': frame_timestamp,
+                    'frame_index': frame_index,
+                    'frame_path': str(frame_path),
+                    'thumbnail_path': str(frame_path)
+                })
+                self.portrait_manager.save_face(face_id, face)
+                results.append(face)
+        return results
+
+    def _extract_frame_meta(self, frame: Any, default_index: int) -> tuple[Path, float, int]:
+        # Backward-compatible frame record handling:
+        # - New: {'path': Path, 'timestamp': float, 'frame_index': int}
+        # - Old: Path only
+        if isinstance(frame, dict):
+            frame_path = Path(frame.get('path', ''))
+            frame_timestamp = self._to_float(frame.get('timestamp'), 0.0)
+            frame_index = int(frame.get('frame_index', default_index))
+        else:
+            frame_path = Path(frame)
+            frame_timestamp = self._infer_timestamp_from_frame_name(frame_path)
+            frame_index = default_index
+        return frame_path, frame_timestamp, frame_index
 
     @staticmethod
     def _to_float(value: Any, fallback: float = 0.0) -> float:

@@ -51,13 +51,13 @@ def run_serve(host: str, port: int, directory: str) -> int:
     return run_command(
         [
             sys.executable,
-            "-m",
-            "http.server",
+            "tools/range_http_server.py",
+            "--host",
+            host,
+            "--port",
             str(port),
             "--directory",
             directory,
-            "--bind",
-            host,
         ]
     )
 

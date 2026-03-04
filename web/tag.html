@@ -148,19 +148,19 @@
 
                 const faceGridHtml = v.faces.map(f => `
                     <div class="face-item" title="${f.idx} @ ${f.s.toFixed(1)}s">
-                        <img src="${DataManager.getThumbnailPath(f.t)}" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&tid=${tid}', '_blank')">
+                        <img src="${DataManager.getThumbnailPath(f.t)}" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURIComponent(v.video_url)}&tid=${encodeURIComponent(tid)}', '_blank')">
                         <div class="face-name">${f.s.toFixed(1)}s</div>
                     </div>
                 `).join('');
 
-                const videoThumb = v.first_thumbnail ? `<img src="${DataManager.getThumbnailPath(v.first_thumbnail)}" class="video-thumb" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&tid=${tid}', '_blank')">` : '';
+                const videoThumb = v.first_thumbnail ? `<img src="${DataManager.getThumbnailPath(v.first_thumbnail)}" class="video-thumb" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURIComponent(v.video_url)}&tid=${encodeURIComponent(tid)}', '_blank')">` : '';
 
                 return `
                 <div class="video-group">
                     <div class="video-header">
                         ${videoThumb}
                         <div class="video-info">
-                            <div class="video-name" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&tid=${tid}', '_blank')">${v.video_name}</div>
+                            <div class="video-name" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURIComponent(v.video_url)}&tid=${encodeURIComponent(tid)}', '_blank')">${v.video_name}</div>
                             ${metaStr}
                         </div>
                     </div>

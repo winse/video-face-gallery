@@ -25,10 +25,16 @@ run.bat
 ### 运行 Docker 版本
 
 ```bash
+# 重建镜像
+docker compose build --no-cache
+
+# 容器内验证 GPU Provider
+docker compose --profile tools run --rm pipeline python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+
 # 1. 把 docker-compose.yml 文件中的 HOST_VIDEO_ROOT 变量修改为视频目录
 
 # 2. 运行完整处理流程
-docker compose run --build --rm pipeline
+docker compose run --rm pipeline
 
 # 3. 运行 Web 服务
 docker compose run --rm -p 8080:8080 webapp

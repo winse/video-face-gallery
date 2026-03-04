@@ -137,7 +137,7 @@
                         faces: fl.map(f => ({
                             face_id: f.face_id,
                             timestamp: getFaceTimestamp(f),
-                            frame_index: f.frame_index ?? '-',
+                            frame_index: (f.frame_index !== undefined && f.frame_index !== null) ? f.frame_index : '-',
                             thumbnail: getCleanThumbnail(f)
                         }))
                     });
@@ -200,11 +200,11 @@
         }
 
         function getFaceTimestamp(face) {
-            const direct = toNumber(face?.timestamp, NaN);
+            const direct = toNumber(face && face.timestamp, NaN);
             if (Number.isFinite(direct)) return direct;
 
             // Backward compatibility for old data without timestamp field.
-            const path = String(face?.thumbnail_path || face?.frame_path || '');
+            const path = String((face && face.thumbnail_path) || (face && face.frame_path) || '');
             const m = path.match(/_t(\d+(?:\.\d+)?)/i);
             if (m) {
                 const parsed = toNumber(m[1], NaN);
@@ -236,7 +236,7 @@
 
                 const faceGridHtml = v.faces.map(f => `
                     <div class="face-item" title="${f.frame_index} @ ${f.timestamp.toFixed(1)}s">
-                        <img src="${DataManager.getThumbnailPath(f.thumbnail)}" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&pid=${pid}', '_blank')">
+                        <img src="${DataManager.getThumbnailPath(f.thumbnail)}" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURIComponent(v.video_url)}&pid=${encodeURIComponent(pid)}', '_blank')">
                         <div class="face-name">${f.timestamp.toFixed(1)}s</div>
                     </div>
                 `).join('');
@@ -251,9 +251,9 @@
                 return `
                     <div class="video-group" data-year="${v.year_month}" data-count="${v.faces.length}" data-time="${v.sort_time}">
                         <div class="video-header">
-                            <img src="${DataManager.getThumbnailPath(v.faces[0].thumbnail)}" class="video-thumb" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&pid=${pid}', '_blank')">
+                            <img src="${DataManager.getThumbnailPath(v.faces[0].thumbnail)}" class="video-thumb" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURIComponent(v.video_url)}&pid=${encodeURIComponent(pid)}', '_blank')">
                             <div class="video-info">
-                                <div class="video-name" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURI(v.video_url)}&pid=${pid}', '_blank')">${v.video_name}</div>
+                                <div class="video-name" onclick="window.open('player.html?video=${encodeURIComponent(v.video_name)}&url=${encodeURIComponent(v.video_url)}&pid=${encodeURIComponent(pid)}', '_blank')">${v.video_name}</div>
                                 ${metaStr}
                                 <div class="video-meta-summary">${v.faces.length} 帧数据</div>
                                 <div class="video-tags">${tagsHtml}</div>

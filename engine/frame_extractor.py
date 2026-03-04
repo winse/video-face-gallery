@@ -2,7 +2,10 @@
 FFmpeg frame extraction module
 """
 import logging
+import hashlib
+import math
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -24,6 +27,7 @@ class FrameExtractor:
     def __init__(
         self,
         ffmpeg_path: Union[str, Path],
+        ffprobe_path: Union[str, Path, None] = None,
         output_dir: Union[str, Path] = "thumbnails",
         quality: int = 90,
         default_size: tuple[int, int] = (640, 480)
@@ -33,23 +37,28 @@ class FrameExtractor:
 
         Args:
             ffmpeg_path: Path to FFmpeg executable
+            ffprobe_path: Path to FFprobe executable (optional)
             output_dir: Directory for output frames
             quality: JPEG quality (1-100)
             default_size: Default output size (width, height)
         """
-        ffmpeg_value = str(ffmpeg_path)
-        ffmpeg_file = Path(ffmpeg_value)
-        if ffmpeg_file.exists():
-            self.ffmpeg_path = ffmpeg_file
-        else:
-            resolved = shutil.which(ffmpeg_value)
-            if not resolved:
-                raise FileNotFoundError(f"FFmpeg not found: {ffmpeg_value}")
-            self.ffmpeg_path = Path(resolved)
+        self.ffmpeg_path = self._resolve_executable(ffmpeg_path, "FFmpeg")
+        self.ffprobe_path = self._resolve_executable(ffprobe_path or "ffprobe", "FFprobe")
 
         self.output_dir = ensure_dir(output_dir)
         self.quality = max(1, min(100, quality))
         self.default_size = default_size
+
+    @staticmethod
+    def _resolve_executable(executable: Union[str, Path], label: str) -> Path:
+        exe_value = str(executable)
+        exe_file = Path(exe_value)
+        if exe_file.exists():
+            return exe_file
+        resolved = shutil.which(exe_value)
+        if not resolved:
+            raise FileNotFoundError(f"{label} not found: {exe_value}")
+        return Path(resolved)
 
     def extract_frame(
         self,
@@ -77,36 +86,70 @@ class FrameExtractor:
 
         # Generate output filename
         if output_filename is None:
-            video_hash = video_path.stem[:16]  # Use first 16 chars
-            output_filename = f"{video_hash}_t{int(timestamp)}.jpg"
+            output_filename = self._build_safe_frame_filename(video_path, frame_index=0, timestamp=timestamp)
 
         output_path = self.output_dir / output_filename
 
-        # FFmpeg command
-        cmd = [
+        qv = str(10 - (self.quality // 10))
+        scale_args: List[str] = ['-vf', f'scale={size[0]}:{size[1]}'] if size else []
+
+        # Strategy A: fast seek (faster for most videos)
+        cmd_fast = [
             str(self.ffmpeg_path),
-            '-ss', str(timestamp),  # Seek to timestamp
-            '-i', str(video_path),   # Input file
-            '-vframes', '1',          # Extract 1 frame
-            '-q:v', str(10 - (self.quality // 10)),  # Quality (lower = better for ffmpeg)
-            '-y',                     # Overwrite output
+            '-ss', str(timestamp),
+            '-i', str(video_path),
+            '-an', '-sn', '-dn',
+            '-vframes', '1',
+            '-q:v', qv,
+            '-y',
+            *scale_args,
+            str(output_path)
         ]
 
-        if size:
-            cmd.extend(['-vf', f'scale={size[0]}:{size[1]}'])
+        # Strategy B: accurate seek fallback (more robust on some long/edge timestamps)
+        cmd_accurate = [
+            str(self.ffmpeg_path),
+            '-i', str(video_path),
+            '-ss', str(timestamp),
+            '-an', '-sn', '-dn',
+            '-vframes', '1',
+            '-q:v', qv,
+            '-y',
+            *scale_args,
+            str(output_path)
+        ]
 
-        cmd.append(str(output_path))
+        ok, err = self._run_ffmpeg_extract(cmd_fast, output_path, timeout=45)
+        if not ok:
+            ok, err2 = self._run_ffmpeg_extract(cmd_accurate, output_path, timeout=90)
+            err = (err or "") + ("\n" + err2 if err2 else "")
 
+        if not ok:
+            logger.error("FFmpeg error: %s", err.strip() if err else "Unknown extraction failure")
+            raise RuntimeError(f"Failed to extract frame at {timestamp}s for {video_path.name}")
+
+        logger.debug(f"Extracted frame: {output_path}")
+        return output_path
+
+    def _run_ffmpeg_extract(self, cmd: List[str], output_path: Path, timeout: int) -> tuple[bool, str]:
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
-            logger.debug(f"Extracted frame: {output_path}")
-            return output_path
+            result = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout
+            )
         except subprocess.TimeoutExpired:
-            logger.error(f"Timeout extracting frame from {video_path}")
-            raise
-        except subprocess.CalledProcessError as e:
-            logger.error(f"FFmpeg error: {e.stderr}")
-            raise
+            return False, f"Timeout after {timeout}s"
+
+        stderr = result.stderr or ""
+        # Treat as success only if command exited 0 and image file is non-empty.
+        if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+            return True, ""
+        return False, stderr
 
     def extract_frames(
         self,
@@ -137,7 +180,7 @@ class FrameExtractor:
                     video_path=video_path,
                     timestamp=ts,
                     size=size,
-                    output_filename=f"{video_path.stem}_f{i:03d}_t{int(ts)}.jpg"
+                    output_filename=self._build_safe_frame_filename(video_path, frame_index=i, timestamp=ts)
                 )
                 frames.append({
                     'path': frame_path,
@@ -170,12 +213,29 @@ class FrameExtractor:
             List of frame records (path/timestamp/frame_index)
         """
         video_path = Path(video_path)
+        num_frames = max(1, int(num_frames))
 
         # Get video duration
         duration = self._get_video_duration(video_path)
+        if duration <= 0:
+            logger.warning(
+                "Duration probe failed for %s, using fallback timestamps for %d frames",
+                video_path, num_frames
+            )
+            timestamps = self._fallback_timestamps(num_frames=num_frames, skip_start=skip_start)
+            return self.extract_frames(video_path, timestamps)
+
         if duration <= skip_start + skip_end:
             logger.warning(f"Video too short: {duration}s")
-            return []
+            # For very short videos, still try sampling inside available duration.
+            start = max(0.0, min(float(skip_start), max(0.0, duration * 0.1)))
+            end = max(start, duration - 0.1)
+            if end <= start:
+                timestamps = [max(0.0, duration / 2.0)] * num_frames
+            else:
+                interval = (end - start) / (num_frames + 1)
+                timestamps = [start + interval * (i + 1) for i in range(num_frames)]
+            return self.extract_frames(video_path, timestamps)
 
         # Calculate timestamps
         effective_duration = duration - skip_start - skip_end
@@ -184,9 +244,67 @@ class FrameExtractor:
         timestamps = [skip_start + interval * (i + 1) for i in range(num_frames)]
         return self.extract_frames(video_path, timestamps)
 
+    def extract_adaptive_frames(
+        self,
+        video_path: Union[str, Path],
+        base_frames: int = 3,
+        skip_start: float = 1.0,
+        skip_end: float = 1.0,
+        target_interval_seconds: float = 8.0,
+        min_frames: int = 6,
+        max_frames: int = 48
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract frames with duration-aware planning.
+
+        Frame count grows with video length and is bounded by min/max.
+        """
+        video_path = Path(video_path)
+        duration = self._get_video_duration(video_path)
+        if duration <= 0:
+            planned = max(int(base_frames), int(min_frames))
+            planned = min(planned, int(max_frames))
+            logger.warning(
+                "Duration probe failed for %s, fallback to %d-frame fixed sampling",
+                video_path, planned
+            )
+            return self.extract_evenly_spaced_frames(
+                video_path=video_path,
+                num_frames=planned,
+                skip_start=skip_start,
+                skip_end=skip_end
+            )
+        if duration <= skip_start + skip_end:
+            logger.warning(f"Video too short: {duration}s")
+            return self.extract_evenly_spaced_frames(
+                video_path=video_path,
+                num_frames=max(1, int(base_frames)),
+                skip_start=0.0,
+                skip_end=0.0
+            )
+
+        effective_duration = max(0.0, duration - skip_start - skip_end)
+        interval = max(1.0, float(target_interval_seconds or 8.0))
+        interval_count = int(math.ceil(effective_duration / interval))
+
+        planned = max(int(base_frames), interval_count, int(min_frames))
+        planned = min(planned, int(max_frames))
+        planned = max(1, planned)
+
+        logger.info(
+            "Adaptive sampling for %s: duration=%.1fs, frames=%d (interval=%.1fs)",
+            video_path.name, duration, planned, interval
+        )
+        return self.extract_evenly_spaced_frames(
+            video_path=video_path,
+            num_frames=planned,
+            skip_start=skip_start,
+            skip_end=skip_end
+        )
+
     def _get_video_duration(self, video_path: Path) -> float:
         """
-        Get video duration using OpenCV
+        Get video duration (prefer ffprobe, fallback to OpenCV)
 
         Args:
             video_path: Path to video file
@@ -194,9 +312,38 @@ class FrameExtractor:
         Returns:
             Duration in seconds
         """
+        # Prefer ffprobe for robustness with unicode/special-character paths.
+        try:
+            cmd = [
+                str(self.ffprobe_path),
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(video_path)
+            ]
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=20
+            )
+            text = (result.stdout or "").strip()
+            m = re.search(r"\d+(?:\.\d+)?", text)
+            if m:
+                duration = float(m.group(0))
+                if duration > 0:
+                    return duration
+        except Exception as e:
+            logger.warning("FFprobe duration read failed for %s: %s", video_path, e)
+
+        # Fallback to OpenCV
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
-            raise ValueError(f"Cannot open video: {video_path}")
+            logger.warning("OpenCV cannot open video for duration probe: %s", video_path)
+            return 0.0
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -207,3 +354,17 @@ class FrameExtractor:
             fps = 30.0
 
         return frame_count / fps
+
+    @staticmethod
+    def _fallback_timestamps(num_frames: int, skip_start: float = 1.0, step: float = 2.0) -> List[float]:
+        start = max(0.0, float(skip_start))
+        gap = max(0.5, float(step))
+        return [start + gap * i for i in range(num_frames)]
+
+    @staticmethod
+    def _build_safe_frame_filename(video_path: Path, frame_index: int, timestamp: float) -> str:
+        # Use a stable ASCII-only filename to avoid Windows/unicode path decode issues.
+        key = str(video_path).encode("utf-8", errors="replace")
+        digest = hashlib.md5(key).hexdigest()[:16]
+        ts_ms = int(max(0.0, float(timestamp)) * 1000)
+        return f"{digest}_f{int(frame_index):03d}_t{ts_ms}.jpg"

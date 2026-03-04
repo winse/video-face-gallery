@@ -42,5 +42,6 @@ nul
 web/face_data/
 web/face_data.json
 runtime-data/
+.insightface/
 *.json
 !config.json  # Keep config if exists

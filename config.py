@@ -106,7 +106,16 @@ DEDUPLICATION_CONFIG = {
 
 VIDEO_PROCESSING_CONFIG = {
     # Frame extraction
-    'frames_per_video': 3,         # Number of frames to extract per video
+    'frames_per_video': 3,         # Backward-compatible base frame count
+    'adaptive_sampling': {
+        'enabled': True,
+        'target_interval_seconds': 8.0,   # target spacing between sampled timestamps
+        'min_frames': 3,                  # minimum sampled frames per video
+        'max_frames': 7,                 # cap for very long videos
+        'retry_if_no_face': True,         # retry when first pass detects no faces
+        'retry_prime_frames': [3, 11, 29],  # prime-count retry stages， 11,17,29,37
+        'retry_max_rounds': 3             # number of retry rounds to run
+    },
     'skip_start_seconds': 1.0,     # Skip first N seconds
     'skip_end_seconds': 1.0,        # Skip last N seconds
 
@@ -204,4 +213,3 @@ def get_config() -> dict:
         'logging': LOGGING_CONFIG,
         'paths': PATH_CONFIG
     }
-

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Shared JavaScript for Person Detail pages
  * Contains all interactive functionality for video player, sorting, filtering
  */
@@ -159,7 +159,7 @@ function openAllVideos(personId, videoUrl) {
                 var img = document.createElement("img");
                 img.src = DataManager.getThumbnailPath(face.t);
                 img.className = "modal-face-thumb";
-                img.title = "跳转到 " + formatTime(face.s);
+                img.title = "跳转到:" + formatTime(face.s);
                 img.onclick = function (e) {
                     e.stopPropagation(); // 阻止触发视频切换
                     if (currentVideoIndex === index) {
@@ -389,7 +389,7 @@ function sortVideosInModal(sortType) {
                 var img = document.createElement("img");
                 img.src = DataManager.getThumbnailPath(face.t);
                 img.className = "modal-face-thumb";
-                img.title = "跳转到 " + formatTime(face.s);
+                img.title = "跳转到:" + formatTime(face.s);
                 img.onclick = function (e) {
                     e.stopPropagation();
                     if (currentVideoIndex === index) {
@@ -497,22 +497,24 @@ function renderModalTags(videoName) {
 
     var tagIds = Object.keys(tagsData.tags);
     if (tagIds.length === 0) {
-        tagSection.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4);padding:8px 16px;">请至标签管理页创建标签</div>';
+        tagSection.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4);padding:8px 16px;">请到标签管理页面创建标签</div>';
         return;
     }
 
     var videoTags = tagsData.video_tags[videoName] || [];
+    var encodedVideoName = encodeURIComponent(videoName || '');
 
     var html = '<div class="modal-tag-header">';
     html += '<span>视频标签管理</span>';
-    html += '<button class="add-tag-btn" onclick="createTagInModal(\'' + videoName + '\')" title="快捷添加新标签">+</button>';
+    html += '<button class="add-tag-btn" onclick="createTagInModal(decodeURIComponent(\'' + encodedVideoName + '\'))" title="快速添加新标签">+</button>';
     html += '</div>';
 
     html += '<div class="modal-tag-list">';
     tagIds.forEach(function (id) {
         var tag = tagsData.tags[id];
         var isActive = videoTags.indexOf(id) > -1;
-        html += '<span class="modal-tag-pill ' + (isActive ? 'active' : '') + '" style="' + (isActive ? 'background:' + tag.color : '') + '" onclick="toggleVideoTagModal(\'' + videoName + '\', \'' + id + '\')">' + tag.name + '</span>';
+        var encodedTagId = encodeURIComponent(id || '');
+        html += '<span class="modal-tag-pill ' + (isActive ? 'active' : '') + '" style="' + (isActive ? 'background:' + tag.color : '') + '" onclick="toggleVideoTagModal(decodeURIComponent(\'' + encodedVideoName + '\'), decodeURIComponent(\'' + encodedTagId + '\'))">' + tag.name + '</span>';
     });
     html += '</div>';
 
@@ -586,7 +588,7 @@ function exportTags() {
 
     if (typeof DataManager !== 'undefined') {
         DataManager.clear().then(() => {
-            alert('已生成新的 tags.json 并清空缓存，请务必覆盖原文件，下次打开页面将自动读取新文件。');
+            alert('已生成新的 tags.json 并清空缓存，请覆盖原文件，重新打开页面后将读取新文件。');
         });
     } else {
         alert('已生成新的 tags.json，请替换原文件并重新生成页面。');

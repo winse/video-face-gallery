@@ -62,7 +62,7 @@ def get_face_detector_config(use_gpu: bool = True, device_id: int = 0) -> Dict[s
                 import subprocess
                 result = subprocess.run(
                     ['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader'],
-                    capture_output=True, text=True, timeout=10
+                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10
                 )
                 if result.returncode == 0:
                     gpu_info = result.stdout.strip()
@@ -113,7 +113,7 @@ def check_gpu_status() -> Dict[str, Any]:
                 import subprocess
                 result = subprocess.run(
                     ['nvidia-smi', '--query-gpu=name,memory.total,compute_cap', '--format=csv,noheader'],
-                    capture_output=True, text=True, timeout=5
+                    capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=5
                 )
                 if result.returncode == 0:
                     parts = result.stdout.strip().split(',')

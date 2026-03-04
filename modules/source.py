@@ -106,7 +106,14 @@ class VideoSource:
                 self.ffprobe_path, '-v', 'error', '-show_entries', 'format=duration',
                 '-of', 'default=noprint_wrappers=1:nokey=1', str(path)
             ]
-            res_dur = subprocess.run(cmd_dur, capture_output=True, text=True, timeout=5)
+            res_dur = subprocess.run(
+                cmd_dur,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=5
+            )
             if res_dur.returncode == 0 and res_dur.stdout.strip():
                 duration = float(res_dur.stdout.strip())
                 
@@ -115,7 +122,14 @@ class VideoSource:
                 self.ffprobe_path, '-v', 'error', '-show_entries', 'format_tags=creation_time',
                 '-of', 'default=noprint_wrappers=1:nokey=1', str(path)
             ]
-            res_time = subprocess.run(cmd_time, capture_output=True, text=True, timeout=5)
+            res_time = subprocess.run(
+                cmd_time,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=5
+            )
             if res_time.returncode == 0 and res_time.stdout.strip():
                 creation_time = res_time.stdout.strip().replace('T', ' ').replace('Z', '')
         except:

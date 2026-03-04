@@ -4,23 +4,17 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      args:
-        PREFER_GPU: ${PREFER_GPU:-1}
-    # For NVIDIA GPUs, uncomment below:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    gpus: all
     volumes:
       # Map the entire WeChat parent or "msg" directory so it can scan for videos
-      - ${HOST_VIDEO_ROOT:-E:/local/home/xwechat_files/winseliu_f4ec/msg/video/2026-03}:/app/web/data
+      - G:/foundry-movies:/app/web/data
       # Persist runtime web data under static root for relative URL access
-      - ${HOST_WEB_DATA_DIR:-../runtime-data}:/app/web/face_data
+      - ../runtime-data:/app/web/face_data
+      - ../.insightface:/root/.insightface
     environment:
       USE_GPU: ${USE_GPU:-1}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
 
   # Default: Runs the lightweight built-in HTTP server to serve the generated JSON UI
   webapp:

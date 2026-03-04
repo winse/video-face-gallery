@@ -651,8 +651,10 @@
             const currentIndex = currentContextPlaylist.findIndex(v => v.name === activeVideoName);
 
             grid.innerHTML = currentContextPlaylist.map((v, idx) => {
+                const encodedName = encodeURIComponent(v.name || '');
+                const encodedUrl = encodeURIComponent(v.url || '');
                 const facesHtml = v.faces.map(f => `
-                    <div class="playlist-face" onclick="event.stopPropagation(); seekToPlaylistTime('${v.name}', '${v.url}', ${Number.isFinite(Number(f.time)) ? Number(f.time) : 0})">
+                    <div class="playlist-face" onclick="event.stopPropagation(); seekToPlaylistTime(decodeURIComponent('${encodedName}'), decodeURIComponent('${encodedUrl}'), ${Number.isFinite(Number(f.time)) ? Number(f.time) : 0})">
                         <img src="${DataManager.getThumbnailPath(f.thumb)}">
                         <div class="playlist-face-time">${(Number.isFinite(Number(f.time)) ? Number(f.time) : 0).toFixed(1)}s</div>
                     </div>
